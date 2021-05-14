@@ -1,0 +1,266 @@
+---
+title: "HW4.2"
+output: rmarkdown::github_document
+  
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# 4.2: Using kmeans to cluster iris data
+
+# Explore and Scale Data
+
+In this question, we'll explore the iris data set, which contains information on 150 data points, each representing an individual flower. The data has 4 predictors (sepal width, sepal length, petal width, petal length) and 1 response variable (flower type). Our goal is to use the kmeans function to cluster the data, and determine the best combination of predictors and recommend a value for k. Since in this case we know the response variable, we will also be able to check how accurate our model was by comparing to the real data.
+
+Let's start by loading libraries, setting a random seed, and reading the data:
+```{r}
+# Load libraries
+library(factoextra)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+# Load data
+data(iris)
+
+# Set random seed
+set.seed(3)
+
+```
+Let's preview the data and get a sense for its structure:
+```{r}
+# Preview data
+head(iris)
+```
+```{r}
+str(iris)
+```
+```{r}
+summary(iris)
+```
+We will need to scale this data before using kmeans, to ensure that predictors of a larger magnitude aren't skewing our results. We'll store these scaled predictor variables in iris_s.
+```{r}
+iris_s <- scale(iris[,1:4])
+head(iris_s)
+```
+Once we cluster our data, we'll want to compare it to the Species column in iris. Usually in unsupervised learning (like clustering) we don't have the response variable, but here we do, so we can compare results AFTER we have built our model. Let's get a sense for the Species in our data:
+```{r}
+table(iris$Species)
+```
+There are 3 species represented in the dataset: setosa, veriscolor, and virginica. There are 50 observations for each species.
+
+Let's also make density plots of the different predictor variables, to get a sense of their distribution by species. This may give us some insight into which will be better predictors when we build the model.
+```{r}
+ggplot(iris, aes(x=Petal.Width, color=Species)) + geom_density()
+```
+```{r}
+ggplot(iris, aes(x=Petal.Length, color=Species)) + geom_density() 
+```
+```{r}
+ggplot(iris, aes(x=Sepal.Width, color=Species)) + geom_density() 
+```
+```{r}
+ggplot(iris, aes(x=Sepal.Length, color=Species)) + geom_density() 
+```
+
+It looks like there is a good deal of overlap between the 3 species for sepal length and sepal width. For petal length and petal width, setosa looks very different than the other 2 species. There is still some overlap between petal length for versicolor and virginica.
+
+As a result, petal length and width may be better predictors to cluster. We will keep this in mind but still try a range of predictors as we build our model.
+
+
+# Build K-Means model with kmeans
+
+## Choose k value and build model with all 4 predictors
+
+There are 3 different species represented in iris, so using k=3 to make 3 clusters would be a logical choice. Let's still run through a number of k values, from 1 to 10, and make an elbow graph to determine the optimal value for k (number of clusters). After all, we could end up with 2 clusters that map more accurately to 1 species, which would still make sense with the data. 
+
+For each k value, we will build a model and extract the total sum of squares (the total distance squared of all the datapoints from their respective cluster centers). We will set nstart=25 so that R tries multiple (25!) starting points for the cluster centers and picks the one that gives the best result. We will use our scaled data, and start by including all 4 predictor variables.
+```{r}
+# Create vector of k values 1 to 10
+ks <- 1:10
+
+# Create empty vector to store total sum of squares for each k value
+tot_ss <- rep(0,10)
+
+# Loop through k values, build a model for each one (optimizing for the cluster starting points), and pull out the total sum of squares, save it in our vector
+
+for (k in ks) {
+  tss <- kmeans(iris_s, k, nstart=25)$tot.withinss
+  tot_ss[k] <- tss
+}
+```
+Next, we'll plot the total sum of squares to pick our k value. 
+```{r}
+plot(tot_ss, type="o", ylab="Total Sum of Squares", xlab="K Value - Number of Clusters")
+```
+
+The "elbow" of the graph is at k=2 or k=3 - after that there is only marginal minimization of the total sum of squares. We know there are 3 species in the data, so using 3 clusters also fits well with the real-world scenario. Let's use 3 clusters to build our final model:
+```{r}
+# Build final model:
+finalm <- kmeans(iris_s, 3, nstart = 25)
+finalm
+```
+Let's visualize the clusters:
+```{r}
+fviz_cluster(finalm, data=iris_s)
+```
+
+We can see that cluster 1 is very distinct. There is less of a clear border between clusters 2 and 3.
+
+Now, let's compare our model's predictions to the response variable (species) in the data.
+
+First, we'll add final$cluster, the vector in our model that stores which cluster each data point belongs to, to our original iris dataframe:
+```{r}
+iris_m <- iris %>%
+  mutate(cluster=finalm$cluster)
+
+# Let's preview a few rows...
+sample_n(iris_m, 10)
+```
+
+Let's create a frequency table to see how well our clustering model did in grouping by species:
+```{r}
+table(iris_m$cluster, iris_m$Species)
+```
+Let's calculate the total accuracy by adding up the observations that were correctly clustered together:
+```{r}
+total_correct <- (39 + 50 + 36) / nrow(iris_m)
+total_correct
+```
+Using k=3 clusters, and all 4 predictors, our model correctly clustered 83.33% of observations.
+
+## Choose k value and build model with a subset of predictors
+
+We can repeat the same process using a subset of predictors. First, let's build models with just the scaled sepal predictors and just scaled the petal predictors:
+
+```{r}
+# Subset the data
+iris_sepal <- iris_s[,1:2]
+iris_petal <- iris_s[,3:4]
+
+# First, let's check the k values for each model
+
+# We'll create empty vectors to store the results
+tot_ss_sepal <- rep(0,10)
+tot_ss_petal <- rep(0,10)
+
+# Loop through k values 1-10, build a model and pull out the total sum of squares, save it in our vectors
+
+for (k in ks) {
+  tss <- kmeans(iris_sepal, k, nstart=25)$tot.withinss
+  tot_ss_sepal[k] <- tss
+}
+
+for (k in ks) {
+  tss <- kmeans(iris_petal, k, nstart=25)$tot.withinss
+  tot_ss_petal[k] <- tss
+}
+```
+Let's plot elbow graphs again to select the best k values:
+```{r}
+# Plot total sum of squares
+plot(tot_ss_sepal, type="o", ylab="Total Sum of Squares", xlab="K Value", main="Sepal Only")
+```
+```{r}
+plot(tot_ss_petal, type="o", ylab="Total Sum of Squares", xlab="K Value", main="Petal Only")
+```
+
+Again, we see the elbow at k=2 or k=3 for petal only and less clearly around k=3 for sepal only. We will use k=3 for both models since there are 3 species in the dataset.
+
+```{r}
+# Build final model:
+finalm_sepal <- kmeans(iris_sepal, 3, nstart = 25)
+finalm_petal <- kmeans(iris_petal, 3, nstart = 25)
+```
+Let's visualize the clusters for each model:
+```{r}
+fviz_cluster(finalm_sepal, data=iris_sepal)
+```
+```{r}
+fviz_cluster(finalm_petal, data=iris_petal)
+```
+
+Clusters seem a little more district for Petal than for Sepal predictors. Let's calculate model accuracy:
+```{r}
+# Let's add each of the cluster vectors to our original dataframe:
+iris_m <- iris_m %>%
+  mutate(cluster_sepal=finalm_sepal$cluster) %>%
+  mutate(cluster_petal=finalm_petal$cluster)
+
+sample_n(iris_m, 10)
+```
+Let's make our frequency tables to compare these models:
+```{r}
+table(iris_m$Species, iris_m$cluster_sepal)
+```
+
+We can calculate accuracy the same way as before:
+```{r}
+accuracy_sepal <- (49 + 36 + 31) / nrow(iris)
+accuracy_sepal
+```
+Accuracy using only the Sepal features was lower, at only 77.33%.
+```{r}
+table(iris_m$Species, iris_m$cluster_petal)
+```
+```{r}
+# Total accuracy:
+accuracy_petal <- (50 + 48 + 46) / nrow(iris)
+accuracy_petal
+```
+Accuracy of this model (petal length and petal width) was 96%! This is likely because the petal measurements are more distinct for the different species than the sepal measurements, as we saw when we plotted the distribution for each variable.
+
+Let's try just using petal length and width alone to build models, using k=3:
+```{r}
+# Build models
+petal_l <- kmeans(iris_s[,3], 3, nstart = 25)
+petal_w <- kmeans(iris_s[,4], 3, nstart = 25)
+
+# And add these to our dataframe
+iris_m <- iris_m %>%
+  mutate(cluster_petal_length=petal_l$cluster) %>%
+  mutate(cluster_petal_width=petal_w$cluster)
+
+# Check data
+sample_n(iris_m, 10)
+```
+And check accuracy...
+```{r}
+table(iris_m$Species, iris_m$cluster_petal_length)
+```
+Total accuracy - petal length:
+```{r}
+(48 + 44 + 50) / nrow(iris)
+```
+```{r}
+table(iris_m$Species, iris_m$cluster_petal_width)
+```
+Total accuracy - petal width:
+```{r}
+(48 + 50 + 46) / nrow(iris)
+```
+Just using petal length to cluster gave us 94.67% accuracy. Just using petal width gave 96% accuracy.
+
+To be thorough, let's also try 3 clusters with 3 predictors: the petal columns plus either sepal width or sepal length.
+```{r}
+# Build models, add cluster vector to dataframe
+iris_m2 <- iris %>%
+  mutate(cluster234 = kmeans(iris_s[,2:4], 3, nstart = 25)$cluster) %>%
+  mutate(cluster134 = kmeans(iris_s[,c(1,3,4)], 3, nstart=25)$cluster)
+```
+Let's check the accuracy:
+```{r}
+table(iris_m2$Species, iris_m2$cluster134)
+```
+```{r}
+table(iris_m2$Species, iris_m2$cluster234)
+```
+None of these combinations of 3 columns give us better results. This is not surprising given that there is more overlap between sepal width and length for the 3 species.
+
+# Conclusion
+K=3 consistently provided a good k value, and made sense given there were 3 species in the dataset.
+Using 2 predictors - petal length and petal width OR 1 predictor - just petal width - gave the best clustering, with 96% of data points being placed in the appropriate cluster for their species.
+
+One thing I would be curious to explore in the future is the iter.max parameter of kmeans, which by default allows a max of 10 iterations of the model. I'd like to learn more about the trade-off of speed vs. accuracy for this parameter and see how much it affects model performance.
+
